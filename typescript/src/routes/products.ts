@@ -5,7 +5,6 @@ import { authenticate, AuthRequest } from '../middleware/jwt';
 
 const router = Router();
 
-// 1. Strict Interface χωρίς κανένα 'any'
 interface IProduct {
   _id?: string | { toString(): string };
   id?: string;
@@ -18,67 +17,60 @@ interface IProduct {
   updatedAt?: Date;
 }
 
-// 2. Συνάρτηση μορφοποίησης (id αντί για _id)
-function formatProduct(product: IProduct) {
-  return {
-    id: product._id ? product._id.toString() : product.id,
-    name: product.name,
-    description: product.description,
-    category: product.category,
-    price: product.price,
-    stock: product.stock,
-    createdAt: product.createdAt,
-    updatedAt: product.updatedAt,
-  };
-}
+const formatProduct = (p: IProduct) => ({
+  id: p._id ? p._id.toString() : p.id,
+  name: p.name,
+  description: p.description,
+  category: p.category,
+  price: p.price,
+  stock: p.stock,
+  createdAt: p.createdAt,
+  updatedAt: p.updatedAt,
+});
 
-// 3. Απομονωμένη helper συνάρτηση φιλτραρίσματος (για χαμηλή πολυπλοκότητα)
-function filterProductsList(products: IProduct[], q?: string, category?: string, minPrice?: number, maxPrice?: number): IProduct[] {
+function filterProductsList(products: IProduct[], q?: string, cat?: string, min?: number, max?: number): IProduct[] {
   let list = [...products];
-
   if (q && q.trim() !== '') {
-    const search = q.toLowerCase().trim();
-    list = list.filter((p) => (p.name && p.name.toLowerCase().includes(search)) || (p.description && p.description.toLowerCase().includes(search)));
+    const s = q.toLowerCase().trim();
+    list = list.filter((p) => (p.name && p.name.toLowerCase().includes(s)) || (p.description && p.description.toLowerCase().includes(s)));
   }
-
-  if (category && category.trim() !== '') {
-    list = list.filter((p) => p.category === category.trim());
-  }
-
-  if (minPrice !== undefined && !isNaN(minPrice)) {
-    list = list.filter((p) => p.price >= minPrice);
-  }
-
-  if (maxPrice !== undefined && !isNaN(maxPrice)) {
-    list = list.filter((p) => p.price <= maxPrice);
-  }
-
+  if (cat && cat.trim() !== '') list = list.filter((p) => p.category === cat.trim());
+  if (min !== undefined && !isNaN(min)) list = list.filter((p) => p.price >= min);
+  if (max !== undefined && !isNaN(max)) list = list.filter((p) => p.price <= max);
   return list;
 }
 
-// === ΝΕΟ ENDPOINT: Αναζήτηση & Φιλτράρισμα Προϊόντων ===
-// Τοποθετείται ΠΡΙΝ από το /:id για να μην μπερδεύεται το Express
+router.get('/stats', async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const allProducts = await productService.getAllProducts() as unknown as IProduct[];
+    const totalCount = allProducts.length;
+    if (totalCount === 0) {
+      return res.json({ totalCount: 0, averagePrice: 0, minPrice: 0, maxPrice: 0, categoryCount: {} });
+    }
+    let sumPrice = 0, minPrice = allProducts[0].price, maxPrice = allProducts[0].price;
+    const categoryCount: Record<string, number> = {};
+    allProducts.forEach((p: IProduct) => {
+      const price = p.price || 0;
+      sumPrice += price;
+      if (price < minPrice) minPrice = price;
+      if (price > maxPrice) maxPrice = price;
+      if (p.category) categoryCount[p.category] = (categoryCount[p.category] || 0) + 1;
+    });
+    return res.json({ totalCount, averagePrice: Math.round((sumPrice / totalCount) * 100) / 100, minPrice, maxPrice, categoryCount });
+  } catch (error) { return next(error); }
+});
+
 router.get('/search', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const q = req.query.q as string;
-    const category = req.query.category as string;
-    
-    const minPrice = req.query.minPrice ? parseFloat(String(req.query.minPrice)) : undefined;
-    const maxPrice = req.query.maxPrice ? parseFloat(String(req.query.maxPrice)) : undefined;
-
-    const allProducts = await productService.getAllProducts() as unknown as IProduct[];
-    
-    // Εκτέλεση φιλτραρίσματος μέσω της helper function
-    const filteredProducts = filterProductsList(allProducts, q, category, minPrice, maxPrice);
-
-    const formattedResults = filteredProducts.map((product: IProduct) => formatProduct(product));
-    return res.json(formattedResults);
-  } catch (error) {
-    return next(error);
-  }
+    const cat = req.query.category as string;
+    const min = req.query.minPrice ? parseFloat(String(req.query.minPrice)) : undefined;
+    const max = req.query.maxPrice ? parseFloat(String(req.query.maxPrice)) : undefined;
+    const all = await productService.getAllProducts() as unknown as IProduct[];
+    const filtered = filterProductsList(all, q, cat, min, max);
+    return res.json(filtered.map((p: IProduct) => formatProduct(p)));
+  } catch (error) { return next(error); }
 });
-
-// === ΥΠΑΡΧΟΝΤΑ ROUTES ===
 
 router.get('/', async (_req: Request, res: Response) => {
   const products = await productService.getAllProducts();
@@ -87,10 +79,7 @@ router.get('/', async (_req: Request, res: Response) => {
 
 router.get('/:id', async (req: Request, res: Response) => {
   const product = await productService.getProductById(req.params.id);
-  if (!product) {
-    return res.status(404).json({ message: 'Product not found' });
-  }
-  return res.json(product);
+  return product ? res.json(product) : res.status(404).json({ message: 'Product not found' });
 });
 
 router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
@@ -100,82 +89,44 @@ router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
 
 router.put('/:id', authenticate, async (req: AuthRequest, res: Response) => {
   const product = await productService.updateProduct(req.params.id, req.body);
-  if (!product) {
-    return res.status(404).json({ message: 'Product not found' });
-  }
-  return res.json(product);
+  return product ? res.json(product) : res.status(404).json({ message: 'Product not found' });
 });
 
 router.delete('/:id', authenticate, async (req: AuthRequest, res: Response) => {
   const deleted = await productService.deleteProduct(req.params.id);
-  if (!deleted) {
-    return res.status(404).json({ message: 'Product not found' });
-  }
-  return res.json({ message: 'Product deleted' });
+  return deleted ? res.json({ message: 'Product deleted' }) : res.status(404).json({ message: 'Product not found' });
 });
 
 router.get('/summary/:productId', async (req: Request, res: Response) => {
-  const product = await Product.findById(req.params.productId);
-  if (!product) {
-    return res.status(404).json({ message: 'Product not found' });
-  }
-  return res.json({
-    id: product._id,
-    name: product.name,
-    description: product.description,
-    category: product.category,
-    price: product.price,
-    stock: product.stock,
-    createdAt: product.createdAt,
-    updatedAt: product.updatedAt,
-  });
+  const p = await Product.findById(req.params.productId);
+  return p ? res.json({ id: p._id, name: p.name, description: p.description, category: p.category, price: p.price, stock: p.stock, createdAt: p.createdAt, updatedAt: p.updatedAt }) : res.status(404).json({ message: 'Product not found' });
 });
 
 router.get('/card/:productId', async (req: Request, res: Response) => {
-  const product = await Product.findById(req.params.productId);
-  if (!product) {
-    return res.status(404).json({ message: 'Product not found' });
-  }
-  return res.json({
-    id: product._id,
-    name: product.name,
-    description: product.description,
-    category: product.category,
-    price: product.price,
-    stock: product.stock,
-    createdAt: product.createdAt,
-    updatedAt: product.updatedAt,
-  });
+  const p = await Product.findById(req.params.productId);
+  return p ? res.json({ id: p._id, name: p.name, description: p.description, category: p.category, price: p.price, stock: p.stock, createdAt: p.createdAt, updatedAt: p.updatedAt }) : res.status(404).json({ message: 'Product not found' });
 });
 
 router.post('/:productId/discount', authenticate, async (req: AuthRequest, res: Response) => {
-  const product = await Product.findById(req.params.productId);
-  if (!product) {
-    return res.status(404).json({ message: 'Product not found' });
-  }
+  const p = await Product.findById(req.params.productId);
+  if (!p) return res.status(404).json({ message: 'Product not found' });
   const { discountPercent } = req.body;
   if (discountPercent == null || discountPercent < 0 || discountPercent > 100) {
     return res.status(400).json({ message: 'discountPercent must be between 0 and 100' });
   }
-  const discounted = product.price! * (1 - discountPercent / 100);
-  product.price = Math.round(discounted * 100) / 100;
-  
-  await product.save();
-  return res.json({ message: 'Discount applied', newPrice: product.price });
+  p.price = Math.round((p.price! * (1 - discountPercent / 100)) * 100) / 100;
+  await p.save();
+  return res.json({ message: 'Discount applied', newPrice: p.price });
 });
 
 router.post('/:productId/restock', authenticate, async (req: AuthRequest, res: Response) => {
-  const product = await Product.findById(req.params.productId);
-  if (!product) {
-    return res.status(404).json({ message: 'Product not found' });
-  }
+  const p = await Product.findById(req.params.productId);
+  if (!p) return res.status(404).json({ message: 'Product not found' });
   const { quantity } = req.body;
-  if (quantity == null || quantity <= 0) {
-    return res.status(400).json({ message: 'quantity must be greater than zero' });
-  }
-  product.stock += quantity;
-  await product.save();
-  return res.json({ message: 'Restock applied', newStock: product.stock });
+  if (quantity == null || quantity <= 0) return res.status(400).json({ message: 'quantity must be greater than zero' });
+  p.stock += quantity;
+  await p.save();
+  return res.json({ message: 'Restock applied', newStock: p.stock });
 });
 
 export default router;
