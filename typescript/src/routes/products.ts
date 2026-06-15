@@ -29,35 +29,56 @@ const formatProduct = (p: IProduct) => ({
   updatedAt: p.updatedAt,
 });
 
+// Validation helper for product input fields to reduce complexity
+function validateProductInput(body: Record<string, unknown>, isUpdate: boolean): Record<string, string> {
+  const errors: Record<string, string> = {};
+  const validCategories = ['Electronics', 'Accessories', 'Storage', 'Networking'];
+
+  // Validate name field
+  if (!isUpdate || body.name !== undefined) {
+    if (!body.name || typeof body.name !== 'string' || body.name.trim() === '') {
+      errors.name = 'Name is required and must be a non-empty string.';
+    }
+  }
+
+  // Validate price field
+  if (!isUpdate || body.price !== undefined) {
+    const priceNum = Number(body.price);
+    if (body.price === undefined || body.price === null || isNaN(priceNum) || priceNum <= 0) {
+      errors.price = 'Price must be a positive number greater than zero.';
+    }
+  }
+
+  // Validate category field
+  if (!isUpdate || body.category !== undefined) {
+    const catStr = body.category ? String(body.category).trim() : '';
+    if (!catStr || !validCategories.includes(catStr)) {
+      errors.category = 'Category must be one of: Electronics, Accessories, Storage, Networking.';
+    }
+  }
+
+  return errors;
+}
+
 // Helper to filter array items based on query variables
 function applyProductFilters(list: IProduct[], q: string, cat: string, min?: number, max?: number): IProduct[] {
   let result = [...list];
-  
   if (q) {
     result = result.filter((p) => 
       (p.name && p.name.toLowerCase().includes(q)) || 
       (p.description && p.description.toLowerCase().includes(q))
     );
   }
-  if (cat) {
-    result = result.filter((p) => p.category === cat);
-  }
-  if (min !== undefined && !isNaN(min)) {
-    result = result.filter((p) => p.price >= min);
-  }
-  if (max !== undefined && !isNaN(max)) {
-    result = result.filter((p) => p.price <= max);
-  }
-  
+  if (cat) result = result.filter((p) => p.category === cat);
+  if (min !== undefined && !isNaN(min)) result = result.filter((p) => p.price >= min);
+  if (max !== undefined && !isNaN(max)) result = result.filter((p) => p.price <= max);
   return result;
 }
 
 // Helper to handle safe array sorting directions
 function sortProductList(list: IProduct[], field: string, orderDirection: number): IProduct[] {
   const sorted = [...list];
-  if (field === 'price') {
-    return sorted.sort((a, b) => (a.price - b.price) * orderDirection);
-  } 
+  if (field === 'price') return sorted.sort((a, b) => (a.price - b.price) * orderDirection);
   if (field === 'name') {
     return sorted.sort((a, b) => {
       const nameA = (a.name || '').toLowerCase().trim();
@@ -90,21 +111,11 @@ router.get('/stats', async (_req: Request, res: Response, next: NextFunction) =>
       maxPrice = price > maxPrice ? price : maxPrice;
       
       const catName = String(p.category || '').trim();
-      if (catName) {
-        categoryCount[catName] = (categoryCount[catName] || 0) + 1;
-      }
+      if (catName) categoryCount[catName] = (categoryCount[catName] || 0) + 1;
     });
 
-    return res.json({
-      totalCount,
-      averagePrice: Math.round((sumPrice / totalCount) * 100) / 100,
-      minPrice,
-      maxPrice,
-      categoryCount
-    });
-  } catch (error) { 
-    return next(error); 
-  }
+    return res.json({ totalCount, averagePrice: Math.round((sumPrice / totalCount) * 100) / 100, minPrice, maxPrice, categoryCount });
+  } catch (error) { return next(error); }
 });
 
 // === Mission 1: Product Search & Filter Endpoint ===
@@ -120,9 +131,7 @@ router.get('/search', async (req: Request, res: Response, next: NextFunction) =>
 
     const filtered = applyProductFilters(list, q, cat, min, max);
     return res.json(filtered.map((p: IProduct) => formatProduct(p)));
-  } catch (error) { 
-    return next(error); 
-  }
+  } catch (error) { return next(error); }
 });
 
 // === Mission 3: Pagination & Sorting Endpoint ===
@@ -144,31 +153,38 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
     const startIndex = (page - 1) * limit;
     const paginatedProducts = sortedList.slice(startIndex, startIndex + limit);
 
-    return res.json({ 
-      data: paginatedProducts.map((p: IProduct) => formatProduct(p)), 
-      page, 
-      limit, 
-      total 
-    });
-  } catch (error) { 
-    return next(error); 
-  }
+    return res.json({ data: paginatedProducts.map((p: IProduct) => formatProduct(p)), page, limit, total });
+  } catch (error) { return next(error); }
 });
 
-// === Core CRUD Operation Fallbacks ===
+// === Core CRUD Operation Fallbacks & Validation ===
 router.get('/:id', async (req: Request, res: Response) => {
   const product = await productService.getProductById(req.params.id);
   return product ? res.json(product) : res.status(404).json({ message: 'Product not found' });
 });
 
-router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
-  const product = await productService.createProduct(req.body);
-  return res.status(201).json(product);
+router.post('/', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const body = req.body as Record<string, unknown>;
+    const errors = validateProductInput(body, false);
+    if (Object.keys(errors).length > 0) {
+      return res.status(400).json({ message: 'Validation failed', errors });
+    }
+    const product = await productService.createProduct(req.body);
+    return res.status(201).json(product);
+  } catch (error) { return next(error); }
 });
 
-router.put('/:id', authenticate, async (req: AuthRequest, res: Response) => {
-  const product = await productService.updateProduct(req.params.id, req.body);
-  return product ? res.json(product) : res.status(404).json({ message: 'Product not found' });
+router.put('/:id', authenticate, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const body = req.body as Record<string, unknown>;
+    const errors = validateProductInput(body, true);
+    if (Object.keys(errors).length > 0) {
+      return res.status(400).json({ message: 'Validation failed', errors });
+    }
+    const product = await productService.updateProduct(req.params.id, req.body);
+    return product ? res.json(product) : res.status(404).json({ message: 'Product not found' });
+  } catch (error) { return next(error); }
 });
 
 router.delete('/:id', authenticate, async (req: AuthRequest, res: Response) => {
