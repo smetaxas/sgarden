@@ -40,7 +40,7 @@ function filterProductsList(products: IProduct[], q?: string, cat?: string, min?
   return list;
 }
 
-// M2: Stats Endpoint
+// M2: Stats Endpoint (Περιλαμβάνει το totalCount === 0 validation)
 router.get('/stats', async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const allProducts = await productService.getAllProducts() as unknown as IProduct[];
@@ -72,7 +72,7 @@ router.get('/search', async (req: Request, res: Response, next: NextFunction) =>
   } catch (error) { return next(error); }
 });
 
-// Υπάρχοντα CRUD endpoints
+// CRUD Endpoints
 router.get('/', async (_req: Request, res: Response) => {
   const products = await productService.getAllProducts();
   return res.json(products);
@@ -112,7 +112,10 @@ router.post('/:productId/discount', authenticate, async (req: AuthRequest, res: 
   const p = await Product.findById(req.params.productId);
   if (!p) return res.status(404).json({ message: 'Product not found' });
   const { discountPercent } = req.body;
-  if (discountPercent == null || discountPercent < 0 || discountPercent > 100) return res.status(400).json({ message: 'discountPercent must be between 0 and 100' });
+  // Επαναφορά του σωστού validation
+  if (discountPercent == null || discountPercent < 0 || discountPercent > 100) {
+    return res.status(400).json({ message: 'discountPercent must be between 0 and 100' });
+  }
   p.price = Math.round((p.price! * (1 - discountPercent / 100)) * 100) / 100;
   await p.save();
   return res.json({ message: 'Discount applied', newPrice: p.price });
