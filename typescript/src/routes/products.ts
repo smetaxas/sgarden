@@ -5,7 +5,7 @@ import { authenticate, AuthRequest } from '../middleware/jwt';
 
 const router = Router();
 
-// 1. Καθαρό interface χωρίς κανένα 'any'
+// 1. Strict Interface χωρίς κανένα 'any'
 interface IProduct {
   _id?: string | { toString(): string };
   id?: string;
@@ -18,7 +18,7 @@ interface IProduct {
   updatedAt?: Date;
 }
 
-// 2. Χρήση του IProduct ως τύπο παραμέτρου
+// 2. Συνάρτηση μορφοποίησης (id αντί για _id)
 function formatProduct(product: IProduct) {
   return {
     id: product._id ? product._id.toString() : product.id,
@@ -32,42 +32,48 @@ function formatProduct(product: IProduct) {
   };
 }
 
+// 3. Απομονωμένη helper συνάρτηση φιλτραρίσματος (για χαμηλή πολυπλοκότητα)
+function filterProductsList(products: IProduct[], q?: string, category?: string, minPrice?: number, maxPrice?: number): IProduct[] {
+  let list = [...products];
+
+  if (q && q.trim() !== '') {
+    const search = q.toLowerCase().trim();
+    list = list.filter((p) => (p.name && p.name.toLowerCase().includes(search)) || (p.description && p.description.toLowerCase().includes(search)));
+  }
+
+  if (category && category.trim() !== '') {
+    list = list.filter((p) => p.category === category.trim());
+  }
+
+  if (minPrice !== undefined && !isNaN(minPrice)) {
+    list = list.filter((p) => p.price >= minPrice);
+  }
+
+  if (maxPrice !== undefined && !isNaN(maxPrice)) {
+    list = list.filter((p) => p.price <= maxPrice);
+  }
+
+  return list;
+}
+
 // === ΝΕΟ ENDPOINT: Αναζήτηση & Φιλτράρισμα Προϊόντων ===
+// Τοποθετείται ΠΡΙΝ από το /:id για να μην μπερδεύεται το Express
 router.get('/search', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const q = req.query.q as string;
     const category = req.query.category as string;
-    const minPrice = req.query.minPrice ? parseFloat(req.query.minPrice as string) : undefined;
-    const maxPrice = req.query.maxPrice ? parseFloat(req.query.maxPrice as string) : undefined;
+    
+    const minPrice = req.query.minPrice ? parseFloat(String(req.query.minPrice)) : undefined;
+    const maxPrice = req.query.maxPrice ? parseFloat(String(req.query.maxPrice)) : undefined;
 
     const allProducts = await productService.getAllProducts() as unknown as IProduct[];
-    let filteredProducts = [...allProducts];
-
-    if (q) {
-      const searchQuery = q.toLowerCase();
-      filteredProducts = filteredProducts.filter((product: IProduct) => {
-        const nameMatch = product.name ? product.name.toLowerCase().includes(searchQuery) : false;
-        const descMatch = product.description ? product.description.toLowerCase().includes(searchQuery) : false;
-        return nameMatch || descMatch;
-      });
-    }
-
-    if (category) {
-      filteredProducts = filteredProducts.filter((product: IProduct) => product.category === category);
-    }
-
-    if (minPrice !== undefined && !isNaN(minPrice)) {
-      filteredProducts = filteredProducts.filter((product: IProduct) => product.price >= minPrice);
-    }
-
-    if (maxPrice !== undefined && !isNaN(maxPrice)) {
-      filteredProducts = filteredProducts.filter((product: IProduct) => product.price <= maxPrice);
-    }
+    
+    // Εκτέλεση φιλτραρίσματος μέσω της helper function
+    const filteredProducts = filterProductsList(allProducts, q, category, minPrice, maxPrice);
 
     const formattedResults = filteredProducts.map((product: IProduct) => formatProduct(product));
     return res.json(formattedResults);
   } catch (error) {
-    // Χρησιμοποιούμε το next(error) για να μην παραμένει unused το error
     return next(error);
   }
 });
