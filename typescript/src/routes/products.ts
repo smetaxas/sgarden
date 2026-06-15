@@ -40,13 +40,12 @@ function filterProductsList(products: IProduct[], q?: string, cat?: string, min?
   return list;
 }
 
+// M2: Stats Endpoint
 router.get('/stats', async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const allProducts = await productService.getAllProducts() as unknown as IProduct[];
     const totalCount = allProducts.length;
-    if (totalCount === 0) {
-      return res.json({ totalCount: 0, averagePrice: 0, minPrice: 0, maxPrice: 0, categoryCount: {} });
-    }
+    if (totalCount === 0) return res.json({ totalCount: 0, averagePrice: 0, minPrice: 0, maxPrice: 0, categoryCount: {} });
     let sumPrice = 0, minPrice = allProducts[0].price, maxPrice = allProducts[0].price;
     const categoryCount: Record<string, number> = {};
     allProducts.forEach((p: IProduct) => {
@@ -60,6 +59,7 @@ router.get('/stats', async (_req: Request, res: Response, next: NextFunction) =>
   } catch (error) { return next(error); }
 });
 
+// M1: Search Endpoint
 router.get('/search', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const q = req.query.q as string;
@@ -72,6 +72,7 @@ router.get('/search', async (req: Request, res: Response, next: NextFunction) =>
   } catch (error) { return next(error); }
 });
 
+// Υπάρχοντα CRUD endpoints
 router.get('/', async (_req: Request, res: Response) => {
   const products = await productService.getAllProducts();
   return res.json(products);
@@ -111,9 +112,7 @@ router.post('/:productId/discount', authenticate, async (req: AuthRequest, res: 
   const p = await Product.findById(req.params.productId);
   if (!p) return res.status(404).json({ message: 'Product not found' });
   const { discountPercent } = req.body;
-  if (discountPercent == null || discountPercent < 0 || discountPercent > 100) {
-    return res.status(400).json({ message: 'discountPercent must be between 0 and 100' });
-  }
+  if (discountPercent == null || discountPercent < 0 || discountPercent > 100) return res.status(400).json({ message: 'discountPercent must be between 0 and 100' });
   p.price = Math.round((p.price! * (1 - discountPercent / 100)) * 100) / 100;
   await p.save();
   return res.json({ message: 'Discount applied', newPrice: p.price });
