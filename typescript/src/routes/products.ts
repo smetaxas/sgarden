@@ -40,7 +40,7 @@ function filterProductsList(products: IProduct[], q?: string, cat?: string, min?
   return list;
 }
 
-// M2: Stats Endpoint (Περιλαμβάνει το totalCount === 0 validation)
+// M2: Stats Endpoint
 router.get('/stats', async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const allProducts = await productService.getAllProducts() as unknown as IProduct[];
@@ -72,10 +72,45 @@ router.get('/search', async (req: Request, res: Response, next: NextFunction) =>
   } catch (error) { return next(error); }
 });
 
-// CRUD Endpoints
-router.get('/', async (_req: Request, res: Response) => {
-  const products = await productService.getAllProducts();
-  return res.json(products);
+// M3: Modified GET / με Pagination και Sorting
+router.get('/', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const page = req.query.page ? parseInt(req.query.page as string, 10) : 1;
+    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 10;
+    const sortField = req.query.sort as string;
+    const order = req.query.order as string === 'desc' ? -1 : 1;
+
+    const allProducts = await productService.getAllProducts() as unknown as IProduct[];
+    const total = allProducts.length;
+
+    // 1. (Sorting)
+    let sortedList = [...allProducts];
+    if (sortField === 'price' || sortField === 'name') {
+      sortedList.sort((a, b) => {
+        const valA = sortField === 'price' ? a.price : (a.name || '').toLowerCase();
+        const valB = sortField === 'price' ? b.price : (b.name || '').toLowerCase();
+        if (valA < valB) return -1 * order;
+        if (valA > valB) return 1 * order;
+        return 0;
+      });
+    }
+
+    // 2. (Pagination)
+    const startIndex = (page - 1) * limit;
+    const paginatedProducts = sortedList.slice(startIndex, startIndex + limit);
+
+    // 3. (Formatting)
+    const formattedData = paginatedProducts.map((p: IProduct) => formatProduct(p));
+
+    return res.json({
+      data: formattedData,
+      page,
+      limit,
+      total
+    });
+  } catch (error) {
+    return next(error);
+  }
 });
 
 router.get('/:id', async (req: Request, res: Response) => {
@@ -112,10 +147,7 @@ router.post('/:productId/discount', authenticate, async (req: AuthRequest, res: 
   const p = await Product.findById(req.params.productId);
   if (!p) return res.status(404).json({ message: 'Product not found' });
   const { discountPercent } = req.body;
-  // Επαναφορά του σωστού validation
-  if (discountPercent == null || discountPercent < 0 || discountPercent > 100) {
-    return res.status(400).json({ message: 'discountPercent must be between 0 and 100' });
-  }
+  if (discountPercent == null || discountPercent < 0 || discountPercent > 100) return res.status(400).json({ message: 'discountPercent must be between 0 and 100' });
   p.price = Math.round((p.price! * (1 - discountPercent / 100)) * 100) / 100;
   await p.save();
   return res.json({ message: 'Discount applied', newPrice: p.price });
