@@ -72,18 +72,15 @@ router.get('/search', async (req: Request, res: Response, next: NextFunction) =>
   } catch (error) { return next(error); }
 });
 
-// M3: Modified GET / με Pagination και Sorting
+// M3: Pagination & Sorting Endpoint
 router.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const page = req.query.page ? parseInt(req.query.page as string, 10) : 1;
     const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 10;
     const sortField = req.query.sort as string;
     const order = req.query.order as string === 'desc' ? -1 : 1;
-
     const allProducts = await productService.getAllProducts() as unknown as IProduct[];
     const total = allProducts.length;
-
-    // 1. (Sorting)
     let sortedList = [...allProducts];
     if (sortField === 'price' || sortField === 'name') {
       sortedList.sort((a, b) => {
@@ -94,25 +91,13 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
         return 0;
       });
     }
-
-    // 2. (Pagination)
     const startIndex = (page - 1) * limit;
     const paginatedProducts = sortedList.slice(startIndex, startIndex + limit);
-
-    // 3. (Formatting)
-    const formattedData = paginatedProducts.map((p: IProduct) => formatProduct(p));
-
-    return res.json({
-      data: formattedData,
-      page,
-      limit,
-      total
-    });
-  } catch (error) {
-    return next(error);
-  }
+    return res.json({ data: paginatedProducts.map((p: IProduct) => formatProduct(p)), page, limit, total });
+  } catch (error) { return next(error); }
 });
 
+// CRUD Endpoints
 router.get('/:id', async (req: Request, res: Response) => {
   const product = await productService.getProductById(req.params.id);
   return product ? res.json(product) : res.status(404).json({ message: 'Product not found' });
