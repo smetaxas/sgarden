@@ -4,6 +4,7 @@ import { connectDatabase } from './database';
 import { seedData } from './seed';
 import authRoutes from './routes/auth';
 import productRoutes from './routes/products';
+import orderRoutes from './routes/orders';
 import userRoutes from './routes/users';
 import config from './config';
 import path from 'path';
@@ -26,6 +27,7 @@ app.get('/api/health', (req, res) => {
 
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
+app.use('/api/orders', orderRoutes);
 app.use('/api/users', userRoutes);
 
 // Global error handler
