@@ -6,6 +6,14 @@ import { Order, IOrder } from '../models/Order';
 
 const router = Router();
 
+const VALID_TRANSITIONS: Record<string, string[]> = {
+  pending:   ['confirmed', 'cancelled'],
+  confirmed: ['shipped'],
+  shipped:   ['delivered'],
+  delivered: [],
+  cancelled: [],
+};
+
 type OrderItemInput = {
   productId: string;
   quantity: number;
@@ -15,6 +23,7 @@ type OrderResponse = {
   id: string;
   items: OrderItemInput[];
   total: number;
+  status: string;
   createdAt?: Date;
   updatedAt?: Date;
 };
@@ -27,6 +36,7 @@ function normalizeOrder(order: IOrder): OrderResponse {
       quantity: item.quantity,
     })),
     total: Number(order.total) || 0,
+    status: order.status,
     createdAt: order.createdAt,
     updatedAt: order.updatedAt,
   };
@@ -86,9 +96,36 @@ async function createOrder(req: AuthRequest, res: Response): Promise<Response> {
   return res.status(201).json(normalizeOrder(order as unknown as IOrder));
 }
 
-async function listOrders(_req: AuthRequest, res: Response): Promise<Response> {
-  const orders = await Order.find({}).sort({ createdAt: -1 }).lean();
+async function listOrders(req: AuthRequest, res: Response): Promise<Response> {
+  const { status } = req.query;
+  const filter = status ? { status } : {};
+  const orders = await Order.find(filter).sort({ createdAt: -1 }).lean();
   return res.json(orders.map((order) => normalizeOrder(order as unknown as IOrder)));
+}
+
+async function updateOrderStatus(req: AuthRequest, res: Response): Promise<Response> {
+  const { status } = req.body as { status?: string };
+
+  if (!status) {
+    return res.status(400).json({ message: 'status is required' });
+  }
+
+  const order = await Order.findById(req.params.id);
+  if (!order) {
+    return res.status(404).json({ message: 'Order not found' });
+  }
+
+  const allowed = VALID_TRANSITIONS[order.status] ?? [];
+  if (!allowed.includes(status)) {
+    return res.status(400).json({
+      message: `Cannot transition from '${order.status}' to '${status}'`,
+    });
+  }
+
+  order.status = status as IOrder['status'];
+  await order.save();
+
+  return res.json(normalizeOrder(order));
 }
 
 async function getOrderById(req: AuthRequest, res: Response): Promise<Response> {
@@ -116,10 +153,14 @@ async function deleteOrder(req: AuthRequest, res: Response): Promise<Response> {
   return deleted ? res.json({ message: 'Order deleted' }) : res.status(404).json({ message: 'Order not found' });
 }
 
+
+
 router.post('/', authenticate, createOrder);
 router.get('/', authenticate, listOrders);
 router.get('/:id', authenticate, getOrderById);
 router.put('/:id', authenticate, updateOrder);
 router.delete('/:id', authenticate, deleteOrder);
+// Register the new route — add this line alongside the others at the bottom
+router.patch('/:id/status', authenticate, updateOrderStatus);
 
 export default router;

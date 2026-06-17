@@ -5,9 +5,12 @@ export interface IOrderItem {
   quantity: number;
 }
 
+export type OrderStatus = 'pending' | 'confirmed' | 'shipped' | 'delivered' | 'cancelled';
+
 export interface IOrder extends Document {
   items: IOrderItem[];
   total: number;
+  status: OrderStatus;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -24,6 +27,7 @@ const orderSchema = new Schema<IOrder>(
   {
     items: { type: [orderItemSchema], required: true },
     total: { type: Number, required: true, default: 0 },
+    status: { type: String, enum: ['pending', 'confirmed', 'shipped', 'delivered', 'cancelled'], default: 'pending', required: true,},
   },
   { timestamps: true, toJSON: { virtuals: true } }
 );
