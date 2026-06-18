@@ -1,10 +1,17 @@
 import { Router, Response } from 'express';
 import { Product } from '../models/Product';
+import { Config } from '../models/Config';
 import { authenticate, AuthRequest } from '../middleware/jwt';
 
 const router = Router();
 
-let alertThreshold = 10;
+const DEFAULT_THRESHOLD = 10;
+const THRESHOLD_KEY = 'alertThreshold';
+
+async function getThreshold(): Promise<number> {
+  const config = await Config.findOne({ key: THRESHOLD_KEY });
+  return config ? config.value : DEFAULT_THRESHOLD;
+}
 
 type AlertObject = {
   severity: 'critical' | 'warning' | 'info';
@@ -14,22 +21,14 @@ type AlertObject = {
 
 async function getAlerts(_req: AuthRequest, res: Response): Promise<Response> {
   try {
+    const alertThreshold = await getThreshold();
     const products = await Product.find({}).lean();
     const alerts: AlertObject[] = [];
-    
-    const seenProductNames = new Set<string>();
 
     products.forEach((product) => {
-      const name = product.name || 'Unknown';
-      
-      // Αν έχουμε ξαναδεί αυτό το όνομα προϊόντος, το προσπερνάμε
-      if (seenProductNames.has(name)) return;
-
       const stock = Number(product.stock) || 0;
-      
-      if (stock < alertThreshold) {
-        seenProductNames.add(name); // Σημειώνουμε ότι το είδαμε
 
+      if (stock < alertThreshold) {
         let severity: 'critical' | 'warning' | 'info' = 'info';
         if (stock <= alertThreshold * 0.2) {
           severity = 'critical';
@@ -39,7 +38,7 @@ async function getAlerts(_req: AuthRequest, res: Response): Promise<Response> {
 
         alerts.push({
           severity,
-          productName: name,
+          productName: product.name || 'Unknown',
           currentStock: stock,
         });
       }
@@ -55,11 +54,19 @@ async function setThreshold(req: AuthRequest, res: Response): Promise<Response> 
   const threshold = Number((req.body as Record<string, unknown>).threshold);
 
   if (!Number.isInteger(threshold) || threshold < 0) {
-    return res.status(400).json({ message: 'Validation failed', errors: { threshold: 'Threshold must be a non-negative integer.' } });
+    return res.status(400).json({
+      message: 'Validation failed',
+      errors: { threshold: 'Threshold must be a non-negative integer.' },
+    });
   }
 
-  alertThreshold = threshold;
-  return res.json({ message: 'Alert threshold updated', threshold: alertThreshold });
+  await Config.findOneAndUpdate(
+    { key: THRESHOLD_KEY },
+    { value: threshold },
+    { upsert: true, new: true }
+  );
+
+  return res.json({ message: 'Alert threshold updated', threshold });
 }
 
 router.get('/', authenticate, getAlerts);
