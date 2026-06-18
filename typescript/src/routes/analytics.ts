@@ -65,21 +65,23 @@ router.get('/sales', authenticate, async (req: AuthRequest, res: Response): Prom
                 as:           'productInfo',
               },
             },
+            // Κρατάμε μόνο products που υπάρχουν ακόμα στη βάση
+            { $match: { productInfo: { $ne: [] } } },
             {
               $project: {
                 _id:           0,
                 productId:     '$_id',
-                name:          { $ifNull: [{ $arrayElemAt: ['$productInfo.name', 0] }, 'Unknown'] },
+                name:          { $arrayElemAt: ['$productInfo.name', 0] },
                 totalQuantity: 1,
                 totalRevenue: {
                   $multiply: [
                     '$totalQuantity',
-                    { $ifNull: [{ $arrayElemAt: ['$productInfo.price', 0] }, 0] },
+                    { $arrayElemAt: ['$productInfo.price', 0] },
                   ],
                 },
               },
             },
-            { $sort: { totalRevenue: -1 } },
+            { $sort: { totalRevenue: -1, totalQuantity: -1 } },
             { $limit: 10 },
           ],
 
@@ -125,7 +127,7 @@ router.get('/sales', authenticate, async (req: AuthRequest, res: Response): Prom
     const summary = result.summary[0] ?? { totalRevenue: 0, totalOrders: 0 };
 
     res.status(200).json({
-      totalRevenue:    Math.round(summary.totalRevenue * 100) / 100, // Round to 2 decimal places
+      totalRevenue:    Math.round(summary.totalRevenue * 100) / 100,
       totalOrders:     summary.totalOrders,
       topProducts:     result.topProducts,
       revenueByPeriod: result.revenueByPeriod,
