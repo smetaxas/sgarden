@@ -91,7 +91,23 @@ async function createOrder(req: AuthRequest, res: Response): Promise<Response> {
   if (payload.error) {
     return res.status(400).json({ message: payload.error });
   }
-
+  
+  // Έλεγχος επαρκούς stock για κάθε product
+  for (const item of payload.items) {
+    const product = await Product.findById(item.productId);
+    if (!product) {
+      return res.status(400).json({ message: `Product ${item.productId} not found` });
+    }
+    if (product.stock < item.quantity) {
+      return res.status(400).json({ message: `Insufficient stock for product ${product.name}` });
+    }
+  }
+ 
+  // Μείωση stock
+  for (const item of payload.items) {
+    await Product.findByIdAndUpdate(item.productId, { $inc: { stock: -item.quantity } });
+  }
+ 
   const order = await Order.create({ items: payload.items, total: payload.total });
   return res.status(201).json(normalizeOrder(order as unknown as IOrder));
 }
@@ -152,7 +168,6 @@ async function deleteOrder(req: AuthRequest, res: Response): Promise<Response> {
   const deleted = await Order.findByIdAndDelete(req.params.id);
   return deleted ? res.json({ message: 'Order deleted' }) : res.status(404).json({ message: 'Order not found' });
 }
-
 
 
 router.post('/', authenticate, createOrder);

@@ -35,9 +35,27 @@ async function restockProduct(req: AuthRequest, res: Response): Promise<Response
   return res.json({ message: 'Restock applied', newStock: product.stock });
 }
 
+// PATCH /:id/stock — set stock to exact value
+async function updateStock(req: AuthRequest, res: Response): Promise<Response> {
+  const product = await Product.findById(req.params.id);
+  if (!product) return res.status(404).json({ message: 'Product not found' });
+ 
+  const { stock } = req.body as Record<string, unknown>;
+  const stockNum = Number(stock);
+ 
+  if (stock === undefined || stock === null || !Number.isInteger(stockNum) || stockNum < 0) {
+    return res.status(400).json({ message: 'stock must be a non-negative integer' });
+  }
+ 
+  product.stock = stockNum;
+  await product.save();
+  return res.json(formatProduct(product));
+}
+
 router.get('/summary/:productId', getProductSummary);
 router.get('/card/:productId', getProductCard);
 router.post('/:productId/discount', authenticate, applyDiscount);
 router.post('/:productId/restock', authenticate, restockProduct);
+router.patch('/:id/stock', authenticate, updateStock);
 
 export default router;
